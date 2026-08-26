@@ -216,7 +216,7 @@ function rolesFor(type){return ROLE_ORDER.filter(function(r){return ROLES[r].day
 function defaultMembers(){var m=[];var i;for(i=1;i<=10;i++)m.push({id:"c"+i,name:"係長"+i,type:"chief"});for(i=1;i<=8;i++)m.push({id:"s1_"+i,name:"係員1-"+i,type:"staff1"});m.push({id:"s2_1",name:"係員2",type:"staff2"});return m;}
 var now=new Date();
 var state={ members:defaultMembers(), year:now.getFullYear(), month:now.getMonth()+1, target:{min:12,max:13}, period:{start:"",end:""}, dayType:{}, override:{}, result:null, savedCum:{} };
-var editingDay=null, editMode="count", resetArmed=false, resetTimer=null;
+var editingDay=null, editMode="count", resetArmed=false, resetTimer=null, countsDirty=false;
 
 function serialize(){return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,dayType:state.dayType,override:state.override,savedCum:state.savedCum});}
 function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.dayType)state.dayType=o.dayType;if(o.override)state.override=o.override;if(o.savedCum)state.savedCum=o.savedCum;}
@@ -333,7 +333,7 @@ function buildEditorRows(){
     html+='<div class="erow"><span>'+r+' '+ROLE_NAME[r]+'<span class="el">'+who+'</span></span><input type="number" min="0" inputmode="numeric" placeholder="0" data-erole="'+r+'" value="'+(cur>0?cur:"")+'"></div>';
   });
   box.innerHTML=html;
-  box.querySelectorAll("[data-erole]").forEach(function(inp){inp.addEventListener("input",function(){if(editingDay==null)return;var o={},sum=0;document.querySelectorAll("[data-erole]").forEach(function(x){var v=Math.max(0,+x.value||0);o[x.getAttribute("data-erole")]=v;sum+=v;});if(sum===0)delete state.override[editingDay];else state.override[editingDay]=o;if(state.result){state.result=null;document.getElementById("result").innerHTML="";}saveState();});});
+  box.querySelectorAll("[data-erole]").forEach(function(inp){inp.addEventListener("input",function(){if(editingDay==null)return;var o={},sum=0;document.querySelectorAll("[data-erole]").forEach(function(x){var v=Math.max(0,+x.value||0);o[x.getAttribute("data-erole")]=v;sum+=v;});if(sum===0)delete state.override[editingDay];else state.override[editingDay]=o;countsDirty=true;saveState();});});
 }
 function setSeg(){var wd=document.getElementById("ed-wd"),hd=document.getElementById("ed-hd");var isH=currentType()==="holiday";wd.className=isH?"":"on";hd.className=isH?"on":"";}
 function switchType(type){if(editingDay==null)return;if(currentType()!==type){delete state.override[editingDay];}state.dayType[editingDay]=type;if(state.result){state.result=null;document.getElementById("result").innerHTML="";}setSeg();buildEditorRows();saveState();}
@@ -353,12 +353,48 @@ function onSwapChange(slotIdx,newId){
   buildSwapRows(state.result.schedule.find(function(x){return x.d===editingDay;}));
 }
 function openEditor(d){
-  editingDay=d;var dow=new Date(state.year,state.month-1,d).getDay();var seg=document.querySelector(".seg");
+  editingDay=d;countsDirty=false;var dow=new Date(state.year,state.month-1,d).getDay();var seg=document.querySelector(".seg");
   if(state.result){var day=state.result.schedule.find(function(x){return x.d===d;});if(day&&day.assigns.length){editMode="swap";document.getElementById("ed-title").textContent=state.month+"月"+d+"日（"+DOW[dow]+"）担当の変更";if(seg)seg.style.display="none";document.getElementById("ed-tpl").textContent="枠数を編集";buildSwapRows(day);document.getElementById("editor").classList.remove("hidden");return;}}
   editMode="count";if(seg)seg.style.display="flex";document.getElementById("ed-tpl").textContent="この日をクリア";document.getElementById("ed-title").textContent=state.month+"月"+d+"日（"+DOW[dow]+"）の枠";setSeg();buildEditorRows();document.getElementById("editor").classList.remove("hidden");
 }
-function closeEditor(){document.getElementById("editor").classList.add("hidden");editingDay=null;renderCalendar();updateAvg();}
+function closeEditor(){document.getElementById("editor").classList.add("hidden");editingDay=null;if(countsDirty&&state.result){countsDirty=false;reconcile();updateAvg();}else{countsDirty=false;renderCalendar();updateAvg();}}
 
+function reconcile(){
+  if(!state.result){ run(); return; }
+  var year=state.year, month=state.month;
+  var avg=typeAverages(state.members,state.savedCum);var cum={},lastG={};
+  state.members.forEach(function(m){var b=state.savedCum[m.id];if(b){cum[m.id]={total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""};}else{var a=avg[m.type];cum[m.id]=a?{total:a.total,holiday:a.holiday,byRole:Object.assign({},a.byRole),lastDate:""}:{total:0,holiday:0,byRole:{},lastDate:""};}if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
+  var existing={};
+  state.result.schedule.forEach(function(day){existing[day.d]={};day.assigns.forEach(function(a){if(a.memberId){(existing[day.d][a.role]=existing[day.d][a.role]||[]).push(a.memberId);}});});
+  var validId=function(id){return state.members.some(function(m){return m.id===id;});};
+  var days=new Date(year,month,0).getDate();var schedule=[];
+  for(var d=1;d<=days;d++){
+    var req=getDaySlots(d);
+    var dow=new Date(year,month-1,d).getDay();var gday=Math.round(new Date(year,month-1,d).getTime()/86400000);var iso=isoDay(year,month,d);
+    var slots=[];ROLE_ORDER.forEach(function(r){for(var i=0;i<(req[r]||0);i++)slots.push(r);});slots.sort(function(a,b){return HARD[a]-HARD[b];});
+    var pools={};ROLE_ORDER.forEach(function(r){pools[r]=((existing[d]||{})[r]||[]).slice();});
+    var today={};var assigns=[];
+    slots.forEach(function(role){
+      var picked=null;
+      while(pools[role].length){var cand=pools[role].shift();if(cand&&!today[cand]&&validId(cand)&&ROLES[role].eligible.indexOf(memberType(cand))>=0){picked=cand;break;}}
+      var chosen;
+      if(picked){chosen=picked;}
+      else{
+        var elig=state.members.filter(function(m){return ROLES[role].eligible.indexOf(m.type)>=0&&!today[m.id];});
+        if(!elig.length){assigns.push({role:role,memberId:null});return;}
+        var best=null,bs=Infinity;
+        elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2;if(ROLES[role].day==="holiday")s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
+        chosen=best.id;
+      }
+      assigns.push({role:role,memberId:chosen});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(ROLES[role].day==="holiday")cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
+    });
+    schedule.push({d:d,dow:dow,type:(state.dayType[d]||"weekday"),assigns:assigns});
+  }
+  var monthly={};state.members.forEach(function(m){monthly[m.id]={total:0,byRole:{}};});
+  schedule.forEach(function(day){day.assigns.forEach(function(a){if(!a.memberId)return;monthly[a.memberId].total++;monthly[a.memberId].byRole[a.role]=(monthly[a.memberId].byRole[a.role]||0)+1;});});
+  state.result={schedule:schedule,cum:cum,monthly:monthly};
+  renderCalendar();renderResult();showMsg("追加した枠だけ埋めました（元の割り当ては維持）。");
+}
 function run(){
   var days=new Date(state.year,state.month,0).getDate();var sbd={};
   for(var d=1;d<=days;d++){var s=getDaySlots(d);s._type=state.dayType[d]||"weekday";sbd[d]=s;}
@@ -451,8 +487,8 @@ function renderAll(){buildSelects();renderMembers();document.getElementById("tgt
   document.getElementById("ed-hd").addEventListener("click",function(){switchType("holiday");});
   document.getElementById("ed-tpl").addEventListener("click",function(){
     if(editingDay==null)return;
-    if(editMode==="swap"){state.result=null;document.getElementById("result").innerHTML="";editMode="count";var seg=document.querySelector(".seg");if(seg)seg.style.display="flex";document.getElementById("ed-tpl").textContent="この日をクリア";var dow=new Date(state.year,state.month-1,editingDay).getDay();document.getElementById("ed-title").textContent=state.month+"月"+editingDay+"日（"+DOW[dow]+"）の枠";setSeg();buildEditorRows();return;}
-    delete state.override[editingDay];if(state.result){state.result=null;document.getElementById("result").innerHTML="";}buildEditorRows();saveState();
+    if(editMode==="swap"){editMode="count";var seg=document.querySelector(".seg");if(seg)seg.style.display="flex";document.getElementById("ed-tpl").textContent="この日をクリア";var dow=new Date(state.year,state.month-1,editingDay).getDay();document.getElementById("ed-title").textContent=state.month+"月"+editingDay+"日（"+DOW[dow]+"）の枠";setSeg();buildEditorRows();return;}
+    delete state.override[editingDay];countsDirty=true;buildEditorRows();saveState();
   });
   document.getElementById("ed-close").addEventListener("click",closeEditor);
   document.getElementById("reset-all").addEventListener("click",function(){if(!resetArmed){resetArmed=true;showMsg("⚠ 本当にすべて（メンバー・入力・累計）をリセットしますか？ もう一度このボタンを押すと実行します（5秒以内）。");if(resetTimer)clearTimeout(resetTimer);resetTimer=setTimeout(function(){resetArmed=false;showMsg("");},5000);return;}if(resetTimer)clearTimeout(resetTimer);resetArmed=false;resetAll();});
