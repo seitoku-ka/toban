@@ -215,11 +215,11 @@ function zeroSlots(){return {"①":0,"②":0,"③":0,"④":0,"⑤":0,"⑥":0,"�
 function rolesFor(type){return ROLE_ORDER.filter(function(r){return ROLES[r].day===type;});}
 function defaultMembers(){var m=[];var i;for(i=1;i<=10;i++)m.push({id:"c"+i,name:"係長"+i,type:"chief"});for(i=1;i<=8;i++)m.push({id:"s1_"+i,name:"係員1-"+i,type:"staff1"});m.push({id:"s2_1",name:"係員2",type:"staff2"});return m;}
 var now=new Date();
-var state={ members:defaultMembers(), year:now.getFullYear(), month:now.getMonth()+1, target:{min:12,max:13}, period:{start:"",end:""}, dayType:{}, override:{}, result:null, savedCum:{} };
+var state={ members:defaultMembers(), year:now.getFullYear(), month:now.getMonth()+1, target:{min:12,max:13}, period:{start:"",end:""}, dayType:{}, override:{}, pins:{}, result:null, savedCum:{} };
 var editingDay=null, editMode="count", resetArmed=false, resetTimer=null, countsDirty=false;
 
-function serialize(){return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,dayType:state.dayType,override:state.override,savedCum:state.savedCum});}
-function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.dayType)state.dayType=o.dayType;if(o.override)state.override=o.override;if(o.savedCum)state.savedCum=o.savedCum;}
+function serialize(){return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,dayType:state.dayType,override:state.override,pins:state.pins,savedCum:state.savedCum});}
+function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.dayType)state.dayType=o.dayType;if(o.override)state.override=o.override;if(o.pins)state.pins=o.pins;if(o.savedCum)state.savedCum=o.savedCum;}
 function saveState(){var s=serialize();try{localStorage.setItem(SKEY,s);}catch(e){}if(window.storage){try{window.storage.set(SKEY,s);}catch(e){}}}
 function loadSync(){try{var s=localStorage.getItem(SKEY);if(s){applyLoaded(JSON.parse(s));return true;}}catch(e){}return false;}
 function loadAsync(cb){if(!window.storage){cb(false);return;}try{var p=window.storage.get(SKEY);if(p&&p.then){p.then(function(r){if(r&&r.value){try{applyLoaded(JSON.parse(r.value));cb(true);return;}catch(e){}}cb(false);},function(){cb(false);});}else if(p&&p.value){try{applyLoaded(JSON.parse(p.value));cb(true);}catch(e){cb(false);}}else cb(false);}catch(e){cb(false);}}
@@ -232,12 +232,16 @@ function nameOf(id){var m=state.members.find(function(x){return x.id===id;});ret
 function memberType(id){var m=state.members.find(function(x){return x.id===id;});return m?m.type:null;}
 function groupCount(t){return state.members.filter(function(m){return m.type===t;}).length;}
 function getDaySlots(d){ if(!inPeriod(d))return zeroSlots(); if(state.override[d]) return Object.assign({},state.override[d]); return zeroSlots(); }
+function setPin(d,role,k,id){if(!state.pins[d])state.pins[d]={};if(!state.pins[d][role])state.pins[d][role]=[];state.pins[d][role][k]=id;}
+function clearPin(d,role,k){if(state.pins[d]&&state.pins[d][role])state.pins[d][role][k]=null;}
+function pinAt(d,role,k){return (state.pins[d]&&state.pins[d][role]&&state.pins[d][role][k])||null;}
 function daySlotTotal(d){var s=getDaySlots(d);var t=0;ROLE_ORDER.forEach(function(r){t+=(+s[r]||0);});return t;}
 function holidayCount(byRole){return (byRole["①"]||0)+(byRole["②"]||0)+(byRole["④"]||0)+(byRole["⑤"]||0);}
 
 function typeAverages(mem,baseCum){var acc={};mem.forEach(function(m){var b=baseCum[m.id];if(!b)return;if(!acc[m.type])acc[m.type]={total:0,holiday:0,byRole:{},n:0};var a=acc[m.type];a.total+=b.total||0;a.holiday+=b.holiday||0;a.n++;ROLE_ORDER.forEach(function(r){a.byRole[r]=(a.byRole[r]||0)+((b.byRole&&b.byRole[r])||0);});});var avg={};Object.keys(acc).forEach(function(t){var a=acc[t];if(a.n>0){avg[t]={total:Math.round(a.total/a.n),holiday:Math.round(a.holiday/a.n),byRole:{}};ROLE_ORDER.forEach(function(r){avg[t].byRole[r]=Math.round((a.byRole[r]||0)/a.n);});}});return avg;}
 function isoDay(y,mo,d){return y+"-"+("0"+mo).slice(-2)+"-"+("0"+d).slice(-2);}
-function generate(mem,year,month,slotsByDay,baseCum){
+function generate(mem,year,month,slotsByDay,baseCum,pins){
+  pins=pins||{};
   var avg=typeAverages(mem,baseCum);var cum={};var lastG={};
   mem.forEach(function(m){var b=baseCum[m.id];if(b){cum[m.id]={total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""};}else{var a=avg[m.type];cum[m.id]=a?{total:a.total,holiday:a.holiday,byRole:Object.assign({},a.byRole),lastDate:""}:{total:0,holiday:0,byRole:{},lastDate:""};}if(cum[m.id].lastDate){lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);}});
   var days=new Date(year,month,0).getDate();var schedule=[];
@@ -245,13 +249,20 @@ function generate(mem,year,month,slotsByDay,baseCum){
     var counts=slotsByDay[d]||{};var slots=[];
     ROLE_ORDER.forEach(function(r){var n=counts[r]||0;for(var i=0;i<n;i++)slots.push(r);});
     slots.sort(function(a,b){return HARD[a]-HARD[b];});
-    var dow=new Date(year,month-1,d).getDay();var gday=Math.round(new Date(year,month-1,d).getTime()/86400000);var iso=isoDay(year,month,d);var today={};var assigns=[];
+    var dow=new Date(year,month-1,d).getDay();var gday=Math.round(new Date(year,month-1,d).getTime()/86400000);var iso=isoDay(year,month,d);var today={};var assigns=[];var rc={};
     slots.forEach(function(role){
-      var elig=mem.filter(function(m){return ROLES[role].eligible.indexOf(m.type)>=0&&!today[m.id];});
-      if(!elig.length){assigns.push({role:role,memberId:null});return;}
-      var best=null,bs=Infinity;
-      elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2;if(ROLES[role].day==="holiday")s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
-      assigns.push({role:role,memberId:best.id});today[best.id]=true;cum[best.id].total++;cum[best.id].byRole[role]=(cum[best.id].byRole[role]||0)+1;if(ROLES[role].day==="holiday")cum[best.id].holiday=(cum[best.id].holiday||0)+1;cum[best.id].lastDate=iso;lastG[best.id]=gday;
+      var k=rc[role]||0;rc[role]=k+1;
+      var chosen=null,isPin=false;
+      var pid=(pins[d]&&pins[d][role]&&pins[d][role][k])||null;
+      if(pid&&!today[pid]){var pm=mem.find(function(m){return m.id===pid;});if(pm&&ROLES[role].eligible.indexOf(pm.type)>=0){chosen=pid;isPin=true;}}
+      if(!chosen){
+        var elig=mem.filter(function(m){return ROLES[role].eligible.indexOf(m.type)>=0&&!today[m.id];});
+        if(!elig.length){assigns.push({role:role,memberId:null});return;}
+        var best=null,bs=Infinity;
+        elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2;if(ROLES[role].day==="holiday")s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
+        chosen=best.id;
+      }
+      assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(ROLES[role].day==="holiday")cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
     });
     schedule.push({d:d,dow:dow,type:(counts._type||"weekday"),assigns:assigns});
   }
@@ -294,7 +305,7 @@ function updateAvg(){
 function initDays(){
   var days=new Date(state.year,state.month,0).getDate();var dt={};
   for(var d=1;d<=days;d++){var dow=new Date(state.year,state.month-1,d).getDay();dt[d]=(dow===0||dow===6)?"holiday":"weekday";}
-  state.dayType=dt; state.override={}; state.result=null;
+  state.dayType=dt; state.override={}; state.pins={}; state.result=null;
   var rz=document.getElementById("result"); if(rz) rz.innerHTML="";
 }
 function renderCalendar(){
@@ -339,18 +350,24 @@ function setSeg(){var wd=document.getElementById("ed-wd"),hd=document.getElement
 function switchType(type){if(editingDay==null)return;if(currentType()!==type){delete state.override[editingDay];}state.dayType[editingDay]=type;if(state.result){state.result=null;document.getElementById("result").innerHTML="";}setSeg();buildEditorRows();saveState();}
 function buildSwapRows(day){
   var box=document.getElementById("ed-roles");
-  var html='<p class="note" style="margin-bottom:8px">担当を選び直すと、その日の別の人と自動で入れ替わります。変更は集計と次の公平性にも反映されます（最後に「累計に反映」を押してください）。</p>';
-  day.assigns.forEach(function(a,i){if(!a.memberId)return;var opts="";state.members.filter(function(m){return ROLES[a.role].eligible.indexOf(m.type)>=0;}).forEach(function(m){opts+='<option value="'+m.id+'"'+(m.id===a.memberId?" selected":"")+'>'+esc(m.name)+'</option>';});html+='<div class="erow"><span>'+a.role+' '+ROLE_SHORT[a.role]+'</span><select data-slot="'+i+'" style="width:auto;min-width:130px">'+opts+'</select></div>';});
+  var html='<p class="note" style="margin-bottom:8px">係員名を選ぶとその枠に固定（📌）されます。「自動（おまかせ）」に戻すと公平配分に戻ります。変更は集計・次の公平性に反映（最後に「累計に反映」）。</p>';
+  var rc={};
+  day.assigns.forEach(function(a){
+    if(!a.memberId)return;
+    var k=rc[a.role]||0;rc[a.role]=k+1;
+    var pinnedId=pinAt(day.d,a.role,k);
+    var opts='<option value="__auto__"'+(pinnedId?"":" selected")+'>自動（おまかせ）</option>';
+    state.members.filter(function(m){return ROLES[a.role].eligible.indexOf(m.type)>=0;}).forEach(function(m){var sel=(pinnedId&&m.id===pinnedId)?" selected":"";var mark=(!pinnedId&&m.id===a.memberId)?"（現在）":"";opts+='<option value="'+m.id+'"'+sel+'>'+esc(m.name)+mark+'</option>';});
+    html+='<div class="erow"><span>'+(pinnedId?"📌 ":"")+a.role+' '+ROLE_SHORT[a.role]+'</span><select data-role="'+a.role+'" data-k="'+k+'" style="width:auto;min-width:160px">'+opts+'</select></div>';
+  });
   box.innerHTML=html;
-  box.querySelectorAll("[data-slot]").forEach(function(sel){sel.addEventListener("change",function(){onSwapChange(+sel.getAttribute("data-slot"),sel.value);});});
+  box.querySelectorAll("[data-role]").forEach(function(sel){sel.addEventListener("change",function(){onPinChange(day.d,sel.getAttribute("data-role"),+sel.getAttribute("data-k"),sel.value);});});
 }
-function onSwapChange(slotIdx,newId){
-  var day=state.result.schedule.find(function(x){return x.d===editingDay;});if(!day)return;
-  var as=day.assigns;var oldId=as[slotIdx].memberId;if(newId===oldId)return;
-  var otherIdx=-1;for(var k=0;k<as.length;k++){if(k!==slotIdx&&as[k].memberId===newId){otherIdx=k;break;}}
-  if(otherIdx>=0){var otherRole=as[otherIdx].role;if(ROLES[otherRole].eligible.indexOf(memberType(oldId))<0){showMsg("その入れ替えはできません（"+ROLE_SHORT[otherRole]+"に入れない人です）");buildSwapRows(day);return;}as[otherIdx].memberId=oldId;}
-  as[slotIdx].memberId=newId;recomputeFromSchedule();renderCalendar();renderResult();
-  buildSwapRows(state.result.schedule.find(function(x){return x.d===editingDay;}));
+function onPinChange(d,role,k,val){
+  if(val==="__auto__")clearPin(d,role,k);else setPin(d,role,k,val);
+  saveState();reconcile();
+  var day=state.result.schedule.find(function(x){return x.d===d;});
+  if(day)buildSwapRows(day);else closeEditor();
 }
 function openEditor(d){
   editingDay=d;countsDirty=false;var dow=new Date(state.year,state.month-1,d).getDay();var seg=document.querySelector(".seg");
@@ -373,20 +390,25 @@ function reconcile(){
     var dow=new Date(year,month-1,d).getDay();var gday=Math.round(new Date(year,month-1,d).getTime()/86400000);var iso=isoDay(year,month,d);
     var slots=[];ROLE_ORDER.forEach(function(r){for(var i=0;i<(req[r]||0);i++)slots.push(r);});slots.sort(function(a,b){return HARD[a]-HARD[b];});
     var pools={};ROLE_ORDER.forEach(function(r){pools[r]=((existing[d]||{})[r]||[]).slice();});
-    var today={};var assigns=[];
+    var today={};var assigns=[];var rc={};
     slots.forEach(function(role){
-      var picked=null;
-      while(pools[role].length){var cand=pools[role].shift();if(cand&&!today[cand]&&validId(cand)&&ROLES[role].eligible.indexOf(memberType(cand))>=0){picked=cand;break;}}
-      var chosen;
-      if(picked){chosen=picked;}
-      else{
+      var k=rc[role]||0;rc[role]=k+1;
+      var chosen=null,isPin=false;
+      var pid=(state.pins[d]&&state.pins[d][role]&&state.pins[d][role][k])||null;
+      if(pid&&!today[pid]&&validId(pid)&&ROLES[role].eligible.indexOf(memberType(pid))>=0){chosen=pid;isPin=true;var pi=pools[role].indexOf(pid);if(pi>=0)pools[role].splice(pi,1);}
+      if(!chosen){
+        var picked=null;
+        while(pools[role].length){var cand=pools[role].shift();if(cand&&!today[cand]&&validId(cand)&&ROLES[role].eligible.indexOf(memberType(cand))>=0){picked=cand;break;}}
+        if(picked)chosen=picked;
+      }
+      if(!chosen){
         var elig=state.members.filter(function(m){return ROLES[role].eligible.indexOf(m.type)>=0&&!today[m.id];});
         if(!elig.length){assigns.push({role:role,memberId:null});return;}
         var best=null,bs=Infinity;
         elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2;if(ROLES[role].day==="holiday")s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
         chosen=best.id;
       }
-      assigns.push({role:role,memberId:chosen});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(ROLES[role].day==="holiday")cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
+      assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(ROLES[role].day==="holiday")cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
     });
     schedule.push({d:d,dow:dow,type:(state.dayType[d]||"weekday"),assigns:assigns});
   }
@@ -398,7 +420,7 @@ function reconcile(){
 function run(){
   var days=new Date(state.year,state.month,0).getDate();var sbd={};
   for(var d=1;d<=days;d++){var s=getDaySlots(d);s._type=state.dayType[d]||"weekday";sbd[d]=s;}
-  state.result=generate(state.members,state.year,state.month,sbd,state.savedCum);
+  state.result=generate(state.members,state.year,state.month,sbd,state.savedCum,state.pins);
   showMsg("");renderCalendar();renderResult();
 }
 function showMsg(t){document.getElementById("msg-area").innerHTML=t?'<div class="msg">'+esc(t)+'</div>':"";}
@@ -465,7 +487,7 @@ function resetCumulative(){
 }
 function resetAll(){
   try{localStorage.removeItem(SKEY);}catch(e){}if(window.storage){try{window.storage.delete(SKEY);}catch(e){}}
-  state.members=defaultMembers();state.target={min:12,max:13};state.period={start:"",end:""};var n=new Date();state.year=n.getFullYear();state.month=n.getMonth()+1;state.savedCum={};
+  state.members=defaultMembers();state.target={min:12,max:13};state.period={start:"",end:""};state.pins={};var n=new Date();state.year=n.getFullYear();state.month=n.getMonth()+1;state.savedCum={};
   buildSelects();initDays();renderMembers();document.getElementById("tgt-min").value=12;document.getElementById("tgt-max").value=13;document.getElementById("per-start").value="";document.getElementById("per-end").value="";renderCalendar();updateAvg();document.getElementById("result").innerHTML="";showMsg("すべてリセットしました。");
 }
 function buildSelects(){
