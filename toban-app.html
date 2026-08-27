@@ -206,11 +206,11 @@
 </script>
 <script>
 var ROLE_ORDER=["①","②","③","④","⑤","⑥","⑦","⑧","⑨","⑩","⑪"];
-var ROLE_NAME={"①":"土日祝日 当番代表","②":"土日祝日 日勤代表","③":"平日代表","④":"土日祝日 勤務（係長枠）","⑤":"土日祝日 勤務（係員枠）","⑥":"平日（係長枠）","⑦":"平日（係員枠）","⑧":"昼立番","⑨":"夜立番","⑩":"女性昼立番","⑪":"女性夜立番"};
-var ROLE_SHORT={"①":"当番代表","②":"日勤代表","③":"平日代表","④":"土日祝(係長)","⑤":"土日祝(係員)","⑥":"平日(係長)","⑦":"平日(係員)","⑧":"昼立番","⑨":"夜立番","⑩":"女性昼立","⑪":"女性夜立"};
-var ROLES={"①":{eligible:["chief"],day:"holiday"},"②":{eligible:["chief"],day:"holiday"},"③":{eligible:["chief"],day:"weekday"},"④":{eligible:["chief"],day:"holiday"},"⑤":{eligible:["chief","staff1","staff2"],day:"holiday"},"⑥":{eligible:["chief"],day:"weekday"},"⑦":{eligible:["chief","staff1","staff2"],day:"weekday"},"⑧":{eligible:["chief","staff1","staff2"],day:"both"},"⑨":{eligible:["chief","staff1","staff2"],day:"both"},"⑩":{eligible:["chief","staff1","staff2"],day:"both",female:true},"⑪":{eligible:["chief","staff1","staff2"],day:"both",female:true}};
+var ROLE_NAME={"①":"土日祝日 当番代表","②":"土日祝日 日勤代表","③":"平日代表","④":"土日祝日 勤務（係長枠）","⑤":"土日祝日 勤務（係員枠）","⑥":"平日（係長枠）","⑦":"平日（係員枠）","⑧":"平日昼立番","⑨":"平日夜立番","⑩":"土日祝日昼立番","⑪":"土日祝日夜立番"};
+var ROLE_SHORT={"①":"当番代表","②":"日勤代表","③":"平日代表","④":"土日祝(係長)","⑤":"土日祝(係員)","⑥":"平日(係長)","⑦":"平日(係員)","⑧":"平日昼立","⑨":"平日夜立","⑩":"土日祝昼立","⑪":"土日祝夜立"};
+var ROLES={"①":{eligible:["chief"],day:"holiday"},"②":{eligible:["chief"],day:"holiday"},"③":{eligible:["chief"],day:"weekday"},"④":{eligible:["chief"],day:"holiday"},"⑤":{eligible:["chief","staff1","staff2"],day:"holiday"},"⑥":{eligible:["chief"],day:"weekday"},"⑦":{eligible:["chief","staff1","staff2"],day:"weekday"},"⑧":{eligible:["chief","staff1","staff2"],day:"weekday"},"⑨":{eligible:["chief","staff1","staff2"],day:"weekday"},"⑩":{eligible:["chief","staff1","staff2"],day:"holiday"},"⑪":{eligible:["chief","staff1","staff2"],day:"holiday"}};
 var TYPE_LABEL={chief:"係長",staff1:"係員1",staff2:"係員2"};
-var HARD={"⑩":0,"⑪":1,"①":2,"②":3,"④":4,"③":5,"⑥":6,"⑤":7,"⑦":8,"⑧":9,"⑨":10};
+var HARD={"①":0,"②":1,"④":2,"③":3,"⑥":4,"⑤":5,"⑦":6,"⑩":7,"⑪":8,"⑧":9,"⑨":10};
 function eligibleFor(role,m){return m&&ROLES[role].eligible.indexOf(m.type)>=0&&(!ROLES[role].female||!!m.female);}
 function isHol(role,dayType){return ROLES[role].day==="holiday"||(ROLES[role].day==="both"&&dayType==="holiday");}
 var DOW=["日","月","火","水","木","金","土"];
@@ -286,14 +286,13 @@ function recomputeFromSchedule(){
 
 function renderMembers(){
   document.getElementById("mem-badge").textContent="係長"+groupCount("chief")+"・係員1が"+groupCount("staff1")+"・係員2が"+groupCount("staff2");
-  var body=document.getElementById("mem-body");var html='<p class="note" style="margin-bottom:8px">「女性」にチェックを入れた人が、女性昼立番・女性夜立番の対象になります。</p>';
+  var body=document.getElementById("mem-body");var html="";
   ["chief","staff1","staff2"].forEach(function(type){
     html+='<div class="grp-head"><b>'+TYPE_LABEL[type]+'</b><button class="add" data-add="'+type+'">＋追加</button></div>';
-    state.members.filter(function(m){return m.type===type;}).forEach(function(m){html+='<div class="memrow"><input value="'+esc(m.name)+'" data-name="'+m.id+'"><label class="fem"><input type="checkbox" data-fem="'+m.id+'"'+(m.female?" checked":"")+'>女性</label><button class="x" data-del="'+m.id+'">✕</button></div>';});
+    state.members.filter(function(m){return m.type===type;}).forEach(function(m){html+='<div class="memrow"><input value="'+esc(m.name)+'" data-name="'+m.id+'"><button class="x" data-del="'+m.id+'">✕</button></div>';});
   });
   body.innerHTML=html;
   body.querySelectorAll("[data-name]").forEach(function(inp){inp.addEventListener("input",function(){var m=state.members.find(function(x){return x.id===inp.getAttribute("data-name");});if(m){m.name=inp.value;saveState();}});});
-  body.querySelectorAll("[data-fem]").forEach(function(cb){cb.addEventListener("change",function(){var m=state.members.find(function(x){return x.id===cb.getAttribute("data-fem");});if(m){m.female=cb.checked;saveState();if(state.result){reconcile();}}});});
   body.querySelectorAll("[data-del]").forEach(function(btn){btn.addEventListener("click",function(){state.members=state.members.filter(function(x){return x.id!==btn.getAttribute("data-del");});renderMembers();saveState();});});
   body.querySelectorAll("[data-add]").forEach(function(btn){btn.addEventListener("click",function(){var type=btn.getAttribute("data-add");state.members.push({id:type+"_"+Date.now(),name:TYPE_LABEL[type]+"追加"+(groupCount(type)+1),type:type});renderMembers();saveState();});});
 }
