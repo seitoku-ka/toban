@@ -230,11 +230,14 @@ function zeroSlots(){return {"①":0,"②":0,"③":0,"④":0,"⑤":0,"⑥":0,"�
 function rolesFor(type){return ROLE_ORDER.filter(function(r){return ROLES[r].day===type||ROLES[r].day==="both";});}
 function defaultMembers(){var m=[];var i;for(i=1;i<=10;i++)m.push({id:"c"+i,name:"係長"+i,type:"chief"});for(i=1;i<=8;i++)m.push({id:"s1_"+i,name:"係員1-"+i,type:"staff1"});m.push({id:"s2_1",name:"係員2",type:"staff2"});return m;}
 var now=new Date();
-var state={ members:defaultMembers(), year:now.getFullYear(), month:now.getMonth()+1, target:{min:12,max:13}, period:{start:"",end:""}, dayType:{}, override:{}, pins:{}, result:null, savedCum:{} };
+var state={ members:defaultMembers(), year:now.getFullYear(), month:now.getMonth()+1, target:{min:12,max:13}, period:{start:"",end:""}, months:{}, dayType:{}, override:{}, pins:{}, result:null, savedCum:{} };
 var editingDay=null, editMode="count", resetArmed=false, resetTimer=null, countsDirty=false;
 
-function serialize(){return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,dayType:state.dayType,override:state.override,pins:state.pins,result:state.result,savedCum:state.savedCum});}
-function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.dayType)state.dayType=o.dayType;if(o.override)state.override=o.override;if(o.pins)state.pins=o.pins;if(o.result!==undefined)state.result=o.result;if(o.savedCum)state.savedCum=o.savedCum;}
+function curKey(){return state.year+"-"+("0"+state.month).slice(-2);}
+function stash(){state.months[curKey()]={dayType:state.dayType,override:state.override,pins:state.pins,result:state.result};}
+function activate(){var m=state.months[curKey()];if(m){state.dayType=m.dayType||{};state.override=m.override||{};state.pins=m.pins||{};state.result=(m.result!==undefined?m.result:null);}else{initDays();}}
+function serialize(){stash();return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,months:state.months,savedCum:state.savedCum});}
+function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.savedCum)state.savedCum=o.savedCum;if(o.months){state.months=o.months;}else{var k=(o.year||state.year)+"-"+("0"+(o.month||state.month)).slice(-2);state.months={};state.months[k]={dayType:o.dayType||{},override:o.override||{},pins:o.pins||{},result:(o.result!==undefined?o.result:null)};}}
 function saveState(){var s=serialize();try{localStorage.setItem(SKEY,s);}catch(e){}if(window.storage){try{window.storage.set(SKEY,s);}catch(e){}}}
 function loadSync(){try{var s=localStorage.getItem(SKEY);if(s){applyLoaded(JSON.parse(s));return true;}}catch(e){}return false;}
 function loadAsync(cb){if(!window.storage){cb(false);return;}try{var p=window.storage.get(SKEY);if(p&&p.then){p.then(function(r){if(r&&r.value){try{applyLoaded(JSON.parse(r.value));cb(true);return;}catch(e){}}cb(false);},function(){cb(false);});}else if(p&&p.value){try{applyLoaded(JSON.parse(p.value));cb(true);}catch(e){cb(false);}}else cb(false);}catch(e){cb(false);}}
@@ -431,7 +434,7 @@ function restoreBackup(){
   var t=(document.getElementById("bk-text").value||"").trim();
   if(!t){showMsg("復元するバックアップ文字列を貼り付けてください。");return;}
   var o;try{o=JSON.parse(t);}catch(e){showMsg("バックアップの形式が正しくありません。コピーした文字列をそのまま貼り付けてください。");return;}
-  applyLoaded(o);saveState();renderAll();document.getElementById("bk-text").value="";showMsg("✓ バックアップから復元しました。");
+  applyLoaded(o);activate();saveState();renderAll();document.getElementById("bk-text").value="";showMsg("✓ バックアップから復元しました。");
 }
 function run(){
   var days=new Date(state.year,state.month,0).getDate();var sbd={};
@@ -503,20 +506,21 @@ function resetCumulative(){
 }
 function resetAll(){
   try{localStorage.removeItem(SKEY);}catch(e){}if(window.storage){try{window.storage.delete(SKEY);}catch(e){}}
-  state.members=defaultMembers();state.target={min:12,max:13};state.period={start:"",end:""};state.pins={};var n=new Date();state.year=n.getFullYear();state.month=n.getMonth()+1;state.savedCum={};
+  state.members=defaultMembers();state.target={min:12,max:13};state.period={start:"",end:""};state.months={};state.pins={};var n=new Date();state.year=n.getFullYear();state.month=n.getMonth()+1;state.savedCum={};
   buildSelects();initDays();renderMembers();document.getElementById("tgt-min").value=12;document.getElementById("tgt-max").value=13;document.getElementById("per-start").value="";document.getElementById("per-end").value="";renderCalendar();updateAvg();document.getElementById("result").innerHTML="";showMsg("すべてリセットしました。");
 }
 function buildSelects(){
   var sy=document.getElementById("sel-year");sy.innerHTML="";var yrs=[state.year-1,state.year,state.year+1,state.year+2];if(yrs.indexOf(now.getFullYear())<0)yrs.unshift(now.getFullYear());yrs.sort(function(a,b){return a-b;}).forEach(function(y){var o=document.createElement("option");o.value=y;o.textContent=y+"年";if(y===state.year)o.selected=true;sy.appendChild(o);});
   var sm=document.getElementById("sel-month");sm.innerHTML="";for(var mo=1;mo<=12;mo++){var o=document.createElement("option");o.value=mo;o.textContent=mo+"月";if(mo===state.month)o.selected=true;sm.appendChild(o);}
 }
+function gotoMonth(){activate();renderCalendar();updateAvg();var rz=document.getElementById("result");if(rz)rz.innerHTML="";if(state.result)renderResult();}
 function renderAll(){buildSelects();renderMembers();document.getElementById("tgt-min").value=state.target.min;document.getElementById("tgt-max").value=state.target.max;document.getElementById("per-start").value=state.period.start||"";document.getElementById("per-end").value=state.period.end||"";renderCalendar();updateAvg();if(state.result)renderResult();}
 
 (function init(){
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
   document.querySelectorAll("[data-toggle]").forEach(function(h){h.addEventListener("click",function(){document.getElementById(h.getAttribute("data-toggle")+"-body").classList.toggle("hidden");});});
-  document.getElementById("sel-year").addEventListener("change",function(){state.year=+this.value;initDays();renderCalendar();updateAvg();saveState();});
-  document.getElementById("sel-month").addEventListener("change",function(){state.month=+this.value;initDays();renderCalendar();updateAvg();saveState();});
+  document.getElementById("sel-year").addEventListener("change",function(){saveState();state.year=+this.value;gotoMonth();saveState();});
+  document.getElementById("sel-month").addEventListener("change",function(){saveState();state.month=+this.value;gotoMonth();saveState();});
   document.getElementById("tgt-min").addEventListener("input",function(){state.target.min=Math.max(0,+this.value||0);updateAvg();saveState();});
   document.getElementById("tgt-max").addEventListener("input",function(){state.target.max=Math.max(0,+this.value||0);updateAvg();saveState();});
   document.getElementById("per-start").addEventListener("change",function(){state.period.start=this.value;if(state.result){state.result=null;document.getElementById("result").innerHTML="";}renderCalendar();updateAvg();saveState();});
@@ -534,8 +538,8 @@ function renderAll(){buildSelects();renderMembers();document.getElementById("tgt
   document.getElementById("bk-restore").addEventListener("click",restoreBackup);
   document.getElementById("reset-all").addEventListener("click",function(){if(!resetArmed){resetArmed=true;showMsg("⚠ 本当にすべて（メンバー・入力・累計）をリセットしますか？ もう一度このボタンを押すと実行します（5秒以内）。");if(resetTimer)clearTimeout(resetTimer);resetTimer=setTimeout(function(){resetArmed=false;showMsg("");},5000);return;}if(resetTimer)clearTimeout(resetTimer);resetArmed=false;resetAll();});
   var had=loadSync();
-  if(had){ if(!state.dayType||Object.keys(state.dayType).length===0)initDays(); renderAll(); }
-  else { loadAsync(function(ok){ if(ok){ if(!state.dayType||Object.keys(state.dayType).length===0)initDays(); renderAll(); } else { buildSelects(); initDays(); renderMembers(); updateAvg(); renderCalendar(); } }); }
+  if(had){ activate(); renderAll(); }
+  else { loadAsync(function(ok){ activate(); renderAll(); }); }
 })();
 
 </script>
