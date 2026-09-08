@@ -172,6 +172,9 @@
       <button class="b-copy" id="bk-copy" style="width:100%;margin-bottom:8px">バックアップをコピー</button>
       <textarea id="bk-text" placeholder="ここに控え（バックアップ文字列）を貼り付けて『この内容から復元』を押す" style="width:100%;height:70px;font-size:12px;box-sizing:border-box"></textarea>
       <button class="b-save" id="bk-restore" style="width:100%;margin-top:8px">この内容から復元</button>
+      <hr style="margin:12px 0;border:none;border-top:1px solid #e2e8f0">
+      <p class="note">累計の数字がおかしいとき（古い不具合の名残など）に、各月のロスターから正しく計算し直します。担当・入力は変わりません。</p>
+      <button class="b-copy" id="bk-recalc" style="width:100%">累計を計算し直す（担当はそのまま）</button>
     </div>
   </div>
 
@@ -260,8 +263,8 @@ function typeAverages(mem,baseCum){var acc={};mem.forEach(function(m){var b=base
 function isoDay(y,mo,d){return y+"-"+("0"+mo).slice(-2)+"-"+("0"+d).slice(-2);}
 function generate(mem,year,month,slotsByDay,baseCum,pins){
   pins=pins||{};
-  var avg=typeAverages(mem,baseCum);var cum={};var lastG={};
-  mem.forEach(function(m){var b=baseCum[m.id];if(b){cum[m.id]={total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""};}else{var a=avg[m.type];cum[m.id]=a?{total:a.total,holiday:a.holiday,byRole:Object.assign({},a.byRole),lastDate:""}:{total:0,holiday:0,byRole:{},lastDate:""};}if(cum[m.id].lastDate){lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);}});
+  var avg=typeAverages(mem,baseCum);var cum={};var seed={};var lastG={};
+  mem.forEach(function(m){var b=baseCum[m.id];cum[m.id]=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:{total:0,holiday:0,byRole:{},lastDate:""};seed[m.id]=(!b&&avg[m.type])?avg[m.type]:null;if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
   var days=new Date(year,month,0).getDate();var schedule=[];
   for(var d=1;d<=days;d++){
     var counts=slotsByDay[d]||{};var dtype=counts._type||"weekday";var slots=[];
@@ -277,7 +280,7 @@ function generate(mem,year,month,slotsByDay,baseCum,pins){
         var elig=mem.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});
         if(!elig.length){assigns.push({role:role,memberId:null});return;}
         var best=null,bs=Infinity;
-        elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
+        elig.forEach(function(m){var sd=seed[m.id];var s=(cum[m.id].total+(sd?sd.total:0))+((cum[m.id].byRole[role]||0)+(sd&&sd.byRole?(sd.byRole[role]||0):0))*2;if(rHol)s+=((cum[m.id].holiday||0)+(sd?sd.holiday:0))*1.5;if(role==="①")s+=((cum[m.id].byRole["①"]||0)+(sd&&sd.byRole?(sd.byRole["①"]||0):0))*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
         chosen=best.id;
       }
       assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(rHol)cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
@@ -293,8 +296,8 @@ function recomputeFromSchedule(){
   var monthly={};state.members.forEach(function(m){monthly[m.id]={total:0,holiday:0,byRole:{}};});
   var lastMap={};
   state.result.schedule.forEach(function(day){var iso=isoDay(state.year,state.month,day.d);day.assigns.forEach(function(a){if(!a.memberId)return;monthly[a.memberId].total++;monthly[a.memberId].byRole[a.role]=(monthly[a.memberId].byRole[a.role]||0)+1;if(isHol(a.role,day.type))monthly[a.memberId].holiday++;lastMap[a.memberId]=iso;});});
-  var baseCum=periodBaseCum();var avg=typeAverages(state.members,baseCum);var cum={};
-  state.members.forEach(function(m){var b=baseCum[m.id];var base=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:(avg[m.type]?{total:avg[m.type].total,holiday:avg[m.type].holiday,byRole:Object.assign({},avg[m.type].byRole),lastDate:""}:{total:0,holiday:0,byRole:{},lastDate:""});var mo=monthly[m.id];base.total+=mo.total;base.holiday+=mo.holiday;ROLE_ORDER.forEach(function(r){var v=mo.byRole[r]||0;if(v)base.byRole[r]=(base.byRole[r]||0)+v;});if(lastMap[m.id])base.lastDate=lastMap[m.id];cum[m.id]=base;});
+  var baseCum=periodBaseCum();var cum={};
+  state.members.forEach(function(m){var b=baseCum[m.id];var base=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:{total:0,holiday:0,byRole:{},lastDate:""};var mo=monthly[m.id];base.total+=mo.total;base.holiday+=mo.holiday;ROLE_ORDER.forEach(function(r){var v=mo.byRole[r]||0;if(v)base.byRole[r]=(base.byRole[r]||0)+v;});if(lastMap[m.id])base.lastDate=lastMap[m.id];cum[m.id]=base;});
   state.result.monthly=monthly;state.result.cum=cum;
 }
 
@@ -410,8 +413,8 @@ function reconcile(){
   if(!state.result){ run(); return; }
   var year=state.year, month=state.month;
   var baseCum=periodBaseCum();
-  var avg=typeAverages(state.members,baseCum);var cum={},lastG={};
-  state.members.forEach(function(m){var b=baseCum[m.id];if(b){cum[m.id]={total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""};}else{var a=avg[m.type];cum[m.id]=a?{total:a.total,holiday:a.holiday,byRole:Object.assign({},a.byRole),lastDate:""}:{total:0,holiday:0,byRole:{},lastDate:""};}if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
+  var avg=typeAverages(state.members,baseCum);var cum={},seed={},lastG={};
+  state.members.forEach(function(m){var b=baseCum[m.id];cum[m.id]=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:{total:0,holiday:0,byRole:{},lastDate:""};seed[m.id]=(!b&&avg[m.type])?avg[m.type]:null;if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
   var existing={};
   state.result.schedule.forEach(function(day){existing[day.d]={};day.assigns.forEach(function(a){if(a.memberId){(existing[day.d][a.role]=existing[day.d][a.role]||[]).push(a.memberId);}});});
   var validId=function(id){return state.members.some(function(m){return m.id===id;});};
@@ -429,7 +432,7 @@ function reconcile(){
       var pid=(state.pins[d]&&state.pins[d][role]&&state.pins[d][role][k])||null;
       if(pid&&!today[pid]&&validId(pid)&&eligId(role,pid)){chosen=pid;isPin=true;var pi=pools[role].indexOf(pid);if(pi>=0)pools[role].splice(pi,1);}
       if(!chosen){var picked=null;while(pools[role].length){var cand=pools[role].shift();if(cand&&!today[cand]&&validId(cand)&&eligId(role,cand)){picked=cand;break;}}if(picked)chosen=picked;}
-      if(!chosen){var elig=state.members.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});if(!elig.length){assigns.push({role:role,memberId:null});return;}var best=null,bs=Infinity;elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});chosen=best.id;}
+      if(!chosen){var elig=state.members.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});if(!elig.length){assigns.push({role:role,memberId:null});return;}var best=null,bs=Infinity;elig.forEach(function(m){var sd=seed[m.id];var s=(cum[m.id].total+(sd?sd.total:0))+((cum[m.id].byRole[role]||0)+(sd&&sd.byRole?(sd.byRole[role]||0):0))*2;if(rHol)s+=((cum[m.id].holiday||0)+(sd?sd.holiday:0))*1.5;if(role==="①")s+=((cum[m.id].byRole["①"]||0)+(sd&&sd.byRole?(sd.byRole["①"]||0):0))*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});chosen=best.id;}
       assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(rHol)cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
     });
     schedule.push({d:d,dow:dow,type:dtype,assigns:assigns});
@@ -448,6 +451,18 @@ function restoreBackup(){
   if(!t){showMsg("復元するバックアップ文字列を貼り付けてください。");return;}
   var o;try{o=JSON.parse(t);}catch(e){showMsg("バックアップの形式が正しくありません。コピーした文字列をそのまま貼り付けてください。");return;}
   applyLoaded(o);activate();saveState();renderAll();document.getElementById("bk-text").value="";showMsg("✓ バックアップから復元しました。");
+}
+function recalcAll(){
+  var sy=state.year,sm=state.month;stash();
+  state.savedCum={};state.periodStartKey="";
+  Object.keys(state.months).sort().forEach(function(k){
+    var p=k.split("-");state.year=+p[0];state.month=+p[1];
+    var mm=state.months[k];state.dayType=mm.dayType||{};state.override=mm.override||{};state.pins=mm.pins||{};state.result=(mm.result!==undefined?mm.result:null);
+    if(state.result&&state.result.schedule)recomputeFromSchedule();
+    state.months[k]={dayType:state.dayType,override:state.override,pins:state.pins,result:state.result};
+  });
+  state.year=sy;state.month=sm;activate();saveState();renderAll();
+  showMsg("累計を各月のロスターから正しく計算し直しました（担当・入力はそのまま）。");
 }
 function run(){
   var days=new Date(state.year,state.month,0).getDate();var sbd={};
@@ -550,6 +565,7 @@ function renderAll(){buildSelects();renderMembers();document.getElementById("tgt
   document.getElementById("ed-close").addEventListener("click",closeEditor);
   document.getElementById("bk-copy").addEventListener("click",copyBackup);
   document.getElementById("bk-restore").addEventListener("click",restoreBackup);
+  document.getElementById("bk-recalc").addEventListener("click",recalcAll);
   document.getElementById("reset-all").addEventListener("click",function(){if(!resetArmed){resetArmed=true;showMsg("⚠ 本当にすべて（メンバー・入力・累計）をリセットしますか？ もう一度このボタンを押すと実行します（5秒以内）。");if(resetTimer)clearTimeout(resetTimer);resetTimer=setTimeout(function(){resetArmed=false;showMsg("");},5000);return;}if(resetTimer)clearTimeout(resetTimer);resetArmed=false;resetAll();});
   var had=loadSync();
   if(had){ activate(); renderAll(); }
