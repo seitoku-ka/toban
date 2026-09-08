@@ -164,6 +164,17 @@
   <p class="hint">気に入らなければ何度でも押して再抽選できます</p>
   <div id="msg-area"></div>
   <div id="result"></div>
+
+  <div class="card">
+    <div class="card-head" data-toggle="bk">データのバックアップ・復元</div>
+    <div class="card-body hidden" id="bk-body">
+      <p class="note">端末やブラウザが保存を消してしまう場合の備えです。「バックアップをコピー」で控えを取り、必要なときに貼り付けて復元できます。控えはメモ帳やメールなどに貼って保管してください。</p>
+      <button class="b-copy" id="bk-copy" style="width:100%;margin-bottom:8px">バックアップをコピー</button>
+      <textarea id="bk-text" placeholder="ここに控え（バックアップ文字列）を貼り付けて『この内容から復元』を押す" style="width:100%;height:70px;font-size:12px;box-sizing:border-box"></textarea>
+      <button class="b-save" id="bk-restore" style="width:100%;margin-top:8px">この内容から復元</button>
+    </div>
+  </div>
+
   <button class="reset-all" id="reset-all">すべての設定・入力をリセット</button>
   <div style="height:40px"></div>
 </div>
@@ -222,8 +233,8 @@ var now=new Date();
 var state={ members:defaultMembers(), year:now.getFullYear(), month:now.getMonth()+1, target:{min:12,max:13}, period:{start:"",end:""}, dayType:{}, override:{}, pins:{}, result:null, savedCum:{} };
 var editingDay=null, editMode="count", resetArmed=false, resetTimer=null, countsDirty=false;
 
-function serialize(){return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,dayType:state.dayType,override:state.override,pins:state.pins,savedCum:state.savedCum});}
-function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.dayType)state.dayType=o.dayType;if(o.override)state.override=o.override;if(o.pins)state.pins=o.pins;if(o.savedCum)state.savedCum=o.savedCum;}
+function serialize(){return JSON.stringify({members:state.members,target:state.target,period:state.period,year:state.year,month:state.month,dayType:state.dayType,override:state.override,pins:state.pins,result:state.result,savedCum:state.savedCum});}
+function applyLoaded(o){if(!o)return;if(o.members)state.members=o.members;if(o.target)state.target=o.target;if(o.period)state.period=o.period;if(o.year)state.year=o.year;if(o.month)state.month=o.month;if(o.dayType)state.dayType=o.dayType;if(o.override)state.override=o.override;if(o.pins)state.pins=o.pins;if(o.result!==undefined)state.result=o.result;if(o.savedCum)state.savedCum=o.savedCum;}
 function saveState(){var s=serialize();try{localStorage.setItem(SKEY,s);}catch(e){}if(window.storage){try{window.storage.set(SKEY,s);}catch(e){}}}
 function loadSync(){try{var s=localStorage.getItem(SKEY);if(s){applyLoaded(JSON.parse(s));return true;}}catch(e){}return false;}
 function loadAsync(cb){if(!window.storage){cb(false);return;}try{var p=window.storage.get(SKEY);if(p&&p.then){p.then(function(r){if(r&&r.value){try{applyLoaded(JSON.parse(r.value));cb(true);return;}catch(e){}}cb(false);},function(){cb(false);});}else if(p&&p.value){try{applyLoaded(JSON.parse(p.value));cb(true);}catch(e){cb(false);}}else cb(false);}catch(e){cb(false);}}
@@ -410,13 +421,23 @@ function reconcile(){
   var monthly={};state.members.forEach(function(m){monthly[m.id]={total:0,holiday:0,byRole:{}};});
   schedule.forEach(function(day){day.assigns.forEach(function(a){if(!a.memberId)return;monthly[a.memberId].total++;monthly[a.memberId].byRole[a.role]=(monthly[a.memberId].byRole[a.role]||0)+1;if(isHol(a.role,day.type))monthly[a.memberId].holiday++;});});
   state.result={schedule:schedule,cum:cum,monthly:monthly};
-  renderCalendar();renderResult();showMsg("追加した枠だけ埋めました（元の割り当ては維持）。");
+  renderCalendar();renderResult();saveState();showMsg("追加した枠だけ埋めました（元の割り当ては維持）。");
+}
+function copyBackup(){
+  var s=serialize();
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){showMsg("✓ バックアップをコピーしました。メモ帳やメールに貼り付けて保管してください。");},function(){fallbackCopy(s);});}else fallbackCopy(s);
+}
+function restoreBackup(){
+  var t=(document.getElementById("bk-text").value||"").trim();
+  if(!t){showMsg("復元するバックアップ文字列を貼り付けてください。");return;}
+  var o;try{o=JSON.parse(t);}catch(e){showMsg("バックアップの形式が正しくありません。コピーした文字列をそのまま貼り付けてください。");return;}
+  applyLoaded(o);saveState();renderAll();document.getElementById("bk-text").value="";showMsg("✓ バックアップから復元しました。");
 }
 function run(){
   var days=new Date(state.year,state.month,0).getDate();var sbd={};
   for(var d=1;d<=days;d++){var s=getDaySlots(d);s._type=state.dayType[d]||"weekday";sbd[d]=s;}
   state.result=generate(state.members,state.year,state.month,sbd,state.savedCum,state.pins);
-  showMsg("");renderCalendar();renderResult();
+  showMsg("");renderCalendar();renderResult();saveState();
 }
 function showMsg(t){document.getElementById("msg-area").innerHTML=t?'<div class="msg">'+esc(t)+'</div>':"";}
 function renderResult(){
@@ -492,6 +513,7 @@ function buildSelects(){
 function renderAll(){buildSelects();renderMembers();document.getElementById("tgt-min").value=state.target.min;document.getElementById("tgt-max").value=state.target.max;document.getElementById("per-start").value=state.period.start||"";document.getElementById("per-end").value=state.period.end||"";renderCalendar();updateAvg();if(state.result)renderResult();}
 
 (function init(){
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
   document.querySelectorAll("[data-toggle]").forEach(function(h){h.addEventListener("click",function(){document.getElementById(h.getAttribute("data-toggle")+"-body").classList.toggle("hidden");});});
   document.getElementById("sel-year").addEventListener("change",function(){state.year=+this.value;initDays();renderCalendar();updateAvg();saveState();});
   document.getElementById("sel-month").addEventListener("change",function(){state.month=+this.value;initDays();renderCalendar();updateAvg();saveState();});
@@ -508,6 +530,8 @@ function renderAll(){buildSelects();renderMembers();document.getElementById("tgt
     delete state.override[editingDay];countsDirty=true;buildEditorRows();saveState();
   });
   document.getElementById("ed-close").addEventListener("click",closeEditor);
+  document.getElementById("bk-copy").addEventListener("click",copyBackup);
+  document.getElementById("bk-restore").addEventListener("click",restoreBackup);
   document.getElementById("reset-all").addEventListener("click",function(){if(!resetArmed){resetArmed=true;showMsg("⚠ 本当にすべて（メンバー・入力・累計）をリセットしますか？ もう一度このボタンを押すと実行します（5秒以内）。");if(resetTimer)clearTimeout(resetTimer);resetTimer=setTimeout(function(){resetArmed=false;showMsg("");},5000);return;}if(resetTimer)clearTimeout(resetTimer);resetArmed=false;resetAll();});
   var had=loadSync();
   if(had){ if(!state.dayType||Object.keys(state.dayType).length===0)initDays(); renderAll(); }
