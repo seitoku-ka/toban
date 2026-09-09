@@ -265,6 +265,7 @@ function generate(mem,year,month,slotsByDay,baseCum,pins){
   pins=pins||{};
   var avg=typeAverages(mem,baseCum);var cum={};var seed={};var lastG={};
   mem.forEach(function(m){var b=baseCum[m.id];cum[m.id]=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:{total:0,holiday:0,byRole:{},lastDate:""};seed[m.id]=(!b&&avg[m.type])?avg[m.type]:null;if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
+  var mc={};Object.keys(pins).forEach(function(dd){var pr=pins[dd];if(pr)Object.keys(pr).forEach(function(rl){(pr[rl]||[]).forEach(function(id){if(id)mc[id]=(mc[id]||0)+1;});});});
   var days=new Date(year,month,0).getDate();var schedule=[];
   for(var d=1;d<=days;d++){
     var counts=slotsByDay[d]||{};var dtype=counts._type||"weekday";var slots=[];
@@ -280,9 +281,10 @@ function generate(mem,year,month,slotsByDay,baseCum,pins){
         var elig=mem.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});
         if(!elig.length){assigns.push({role:role,memberId:null});return;}
         var best=null,bs=Infinity;
-        elig.forEach(function(m){var sd=seed[m.id];var s=(cum[m.id].total+(sd?sd.total:0))+((cum[m.id].byRole[role]||0)+(sd&&sd.byRole?(sd.byRole[role]||0):0))*2;if(rHol)s+=((cum[m.id].holiday||0)+(sd?sd.holiday:0))*1.5;if(role==="①")s+=((cum[m.id].byRole["①"]||0)+(sd&&sd.byRole?(sd.byRole["①"]||0):0))*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
+        elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2+(mc[m.id]||0)*100;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
         chosen=best.id;
       }
+      if(!isPin)mc[chosen]=(mc[chosen]||0)+1;
       assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(rHol)cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
     });
     schedule.push({d:d,dow:dow,type:dtype,assigns:assigns});
@@ -419,6 +421,7 @@ function reconcile(){
   state.result.schedule.forEach(function(day){existing[day.d]={};day.assigns.forEach(function(a){if(a.memberId){(existing[day.d][a.role]=existing[day.d][a.role]||[]).push(a.memberId);}});});
   var validId=function(id){return state.members.some(function(m){return m.id===id;});};
   var eligId=function(role,id){return eligibleFor(role,state.members.find(function(x){return x.id===id;}));};
+  var mc={};Object.keys(existing).forEach(function(dd){var er=existing[dd];Object.keys(er).forEach(function(rl){(er[rl]||[]).forEach(function(id){if(id)mc[id]=(mc[id]||0)+1;});});});
   var days=new Date(year,month,0).getDate();var schedule=[];
   for(var d=1;d<=days;d++){
     var req=getDaySlots(d);var dtype=state.dayType[d]||"weekday";
@@ -432,7 +435,7 @@ function reconcile(){
       var pid=(state.pins[d]&&state.pins[d][role]&&state.pins[d][role][k])||null;
       if(pid&&!today[pid]&&validId(pid)&&eligId(role,pid)){chosen=pid;isPin=true;var pi=pools[role].indexOf(pid);if(pi>=0)pools[role].splice(pi,1);}
       if(!chosen){var picked=null;while(pools[role].length){var cand=pools[role].shift();if(cand&&!today[cand]&&validId(cand)&&eligId(role,cand)){picked=cand;break;}}if(picked)chosen=picked;}
-      if(!chosen){var elig=state.members.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});if(!elig.length){assigns.push({role:role,memberId:null});return;}var best=null,bs=Infinity;elig.forEach(function(m){var sd=seed[m.id];var s=(cum[m.id].total+(sd?sd.total:0))+((cum[m.id].byRole[role]||0)+(sd&&sd.byRole?(sd.byRole[role]||0):0))*2;if(rHol)s+=((cum[m.id].holiday||0)+(sd?sd.holiday:0))*1.5;if(role==="①")s+=((cum[m.id].byRole["①"]||0)+(sd&&sd.byRole?(sd.byRole["①"]||0):0))*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});chosen=best.id;}
+      if(!chosen){var elig=state.members.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});if(!elig.length){assigns.push({role:role,memberId:null});return;}var best=null,bs=Infinity;elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2+(mc[m.id]||0)*100;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});chosen=best.id;mc[chosen]=(mc[chosen]||0)+1;}
       assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(rHol)cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
     });
     schedule.push({d:d,dow:dow,type:dtype,assigns:assigns});
