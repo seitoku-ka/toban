@@ -261,8 +261,8 @@ function holidayCount(byRole){return (byRole["①"]||0)+(byRole["②"]||0)+(byRo
 
 function typeAverages(mem,baseCum){var acc={};mem.forEach(function(m){var b=baseCum[m.id];if(!b)return;if(!acc[m.type])acc[m.type]={total:0,holiday:0,byRole:{},n:0};var a=acc[m.type];a.total+=b.total||0;a.holiday+=b.holiday||0;a.n++;ROLE_ORDER.forEach(function(r){a.byRole[r]=(a.byRole[r]||0)+((b.byRole&&b.byRole[r])||0);});});var avg={};Object.keys(acc).forEach(function(t){var a=acc[t];if(a.n>0){avg[t]={total:Math.round(a.total/a.n),holiday:Math.round(a.holiday/a.n),byRole:{}};ROLE_ORDER.forEach(function(r){avg[t].byRole[r]=Math.round((a.byRole[r]||0)/a.n);});}});return avg;}
 function isoDay(y,mo,d){return y+"-"+("0"+mo).slice(-2)+"-"+("0"+d).slice(-2);}
-function generate(mem,year,month,slotsByDay,baseCum,pins){
-  pins=pins||{};
+function generate(mem,year,month,slotsByDay,baseCum,pins,nextG){
+  pins=pins||{};nextG=nextG||{};
   var avg=typeAverages(mem,baseCum);var cum={};var seed={};var lastG={};
   mem.forEach(function(m){var b=baseCum[m.id];cum[m.id]=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:{total:0,holiday:0,byRole:{},lastDate:""};seed[m.id]=(!b&&avg[m.type])?avg[m.type]:null;if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
   var mc={};Object.keys(pins).forEach(function(dd){var pr=pins[dd];if(pr)Object.keys(pr).forEach(function(rl){(pr[rl]||[]).forEach(function(id){if(id)mc[id]=(mc[id]||0)+1;});});});
@@ -281,7 +281,7 @@ function generate(mem,year,month,slotsByDay,baseCum,pins){
         var elig=mem.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});
         if(!elig.length){assigns.push({role:role,memberId:null});return;}
         var best=null,bs=Infinity;
-        elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2+(mc[m.id]||0)*100;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
+        elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2+(mc[m.id]||0)*100;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;var cg=1e9;if(lastG[m.id]!=null){var pg=gday-lastG[m.id];if(pg>=0&&pg<cg)cg=pg;}if(nextG[m.id]!=null){var ng2=nextG[m.id]-gday;if(ng2>=0&&ng2<cg)cg=ng2;}if(cg<14)s+=(14-cg)*(14-cg)*0.6;s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});
         chosen=best.id;
       }
       if(!isPin)mc[chosen]=(mc[chosen]||0)+1;
@@ -411,10 +411,19 @@ function periodBaseCum(){
   });
   return base;
 }
+function futureFirstDates(){
+  var res={};var tgt=curKey();
+  Object.keys(state.months).forEach(function(k){
+    if(k<=tgt)return;var mm=state.months[k];var p=k.split("-");var y=+p[0],mo=+p[1];
+    if(mm.result&&mm.result.schedule)mm.result.schedule.forEach(function(day){day.assigns.forEach(function(a){if(!a.memberId)return;var g=Math.round(new Date(y,mo-1,day.d).getTime()/86400000);if(res[a.memberId]==null||g<res[a.memberId])res[a.memberId]=g;});});
+    if(mm.pins)Object.keys(mm.pins).forEach(function(dd){var pr=mm.pins[dd];if(pr)Object.keys(pr).forEach(function(rl){(pr[rl]||[]).forEach(function(id){if(!id)return;var g=Math.round(new Date(y,mo-1,+dd).getTime()/86400000);if(res[id]==null||g<res[id])res[id]=g;});});});
+  });
+  return res;
+}
 function reconcile(){
   if(!state.result){ run(); return; }
   var year=state.year, month=state.month;
-  var baseCum=periodBaseCum();
+  var baseCum=periodBaseCum();var nextG=futureFirstDates();
   var avg=typeAverages(state.members,baseCum);var cum={},seed={},lastG={};
   state.members.forEach(function(m){var b=baseCum[m.id];cum[m.id]=b?{total:b.total||0,holiday:b.holiday||0,byRole:Object.assign({},b.byRole||{}),lastDate:b.lastDate||""}:{total:0,holiday:0,byRole:{},lastDate:""};seed[m.id]=(!b&&avg[m.type])?avg[m.type]:null;if(cum[m.id].lastDate)lastG[m.id]=Math.round(parseISO(cum[m.id].lastDate)/86400000);});
   var existing={};
@@ -435,7 +444,7 @@ function reconcile(){
       var pid=(state.pins[d]&&state.pins[d][role]&&state.pins[d][role][k])||null;
       if(pid&&!today[pid]&&validId(pid)&&eligId(role,pid)){chosen=pid;isPin=true;var pi=pools[role].indexOf(pid);if(pi>=0)pools[role].splice(pi,1);}
       if(!chosen){var picked=null;while(pools[role].length){var cand=pools[role].shift();if(cand&&!today[cand]&&validId(cand)&&eligId(role,cand)){picked=cand;break;}}if(picked)chosen=picked;}
-      if(!chosen){var elig=state.members.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});if(!elig.length){assigns.push({role:role,memberId:null});return;}var best=null,bs=Infinity;elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2+(mc[m.id]||0)*100;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;if(lastG[m.id]!=null){var gap=gday-lastG[m.id];if(gap===1)s+=50;s+=-Math.min(Math.max(gap,0),30)*0.03;}s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});chosen=best.id;mc[chosen]=(mc[chosen]||0)+1;}
+      if(!chosen){var elig=state.members.filter(function(m){return eligibleFor(role,m)&&!today[m.id];});if(!elig.length){assigns.push({role:role,memberId:null});return;}var best=null,bs=Infinity;elig.forEach(function(m){var s=cum[m.id].total+(cum[m.id].byRole[role]||0)*2+(mc[m.id]||0)*100;if(rHol)s+=(cum[m.id].holiday||0)*1.5;if(role==="①")s+=(cum[m.id].byRole["①"]||0)*2;var cg=1e9;if(lastG[m.id]!=null){var pg=gday-lastG[m.id];if(pg>=0&&pg<cg)cg=pg;}if(nextG[m.id]!=null){var ng2=nextG[m.id]-gday;if(ng2>=0&&ng2<cg)cg=ng2;}if(cg<14)s+=(14-cg)*(14-cg)*0.6;s+=Math.random()*0.3;if(s<bs){bs=s;best=m;}});chosen=best.id;mc[chosen]=(mc[chosen]||0)+1;}
       assigns.push({role:role,memberId:chosen,pinned:isPin});today[chosen]=true;cum[chosen].total++;cum[chosen].byRole[role]=(cum[chosen].byRole[role]||0)+1;if(rHol)cum[chosen].holiday=(cum[chosen].holiday||0)+1;cum[chosen].lastDate=iso;lastG[chosen]=gday;
     });
     schedule.push({d:d,dow:dow,type:dtype,assigns:assigns});
@@ -470,7 +479,7 @@ function recalcAll(){
 function run(){
   var days=new Date(state.year,state.month,0).getDate();var sbd={};
   for(var d=1;d<=days;d++){var s=getDaySlots(d);s._type=state.dayType[d]||"weekday";sbd[d]=s;}
-  state.result=generate(state.members,state.year,state.month,sbd,periodBaseCum(),state.pins);
+  state.result=generate(state.members,state.year,state.month,sbd,periodBaseCum(),state.pins,futureFirstDates());
   showMsg("");renderCalendar();renderResult();saveState();
 }
 function showMsg(t){document.getElementById("msg-area").innerHTML=t?'<div class="msg">'+esc(t)+'</div>':"";}
